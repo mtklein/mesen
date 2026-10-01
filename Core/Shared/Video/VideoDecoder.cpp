@@ -251,6 +251,12 @@ void VideoDecoder::TakeScreenshot(string romName)
 
 void VideoDecoder::TakeScreenshot(std::stringstream& stream)
 {
+	//The emulation thread hands each finished frame to the decode thread, which converts it into
+	//the filter's output buffer. A screenshot taken before that conversion is done (e.g. from a
+	//script's startFrame callback) would copy the previous frame: wait for the pending frame first.
+	while(_frameChanged && !_stopFlag) {
+	}
+
 	if(_videoFilter) {
 		_videoFilter->TakeScreenshot(_videoFilterType, "", &stream);
 	}
