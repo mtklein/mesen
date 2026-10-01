@@ -72,7 +72,7 @@ void ScriptManager::RemoveScript(int32_t scriptId)
 void ScriptManager::RefreshMemoryCallbackFlags()
 {
 	_isPpuMemoryCallbackEnabled = false;
-	_isCpuMemoryCallbackEnabled = false;
+	_cpuMemoryCallbackMask = 0;
 	for(unique_ptr<ScriptHost>& script : _scripts) {
 		script->RefreshMemoryCallbackFlags();
 	}

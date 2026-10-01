@@ -28,6 +28,8 @@ public:
 	template<typename T>
 	__forceinline void CallMemoryCallback(AddressInfo relAddr, T& value, CallbackType callbackType, CpuType cpuType)
 	{
-		_context->CallMemoryCallback(relAddr, value, callbackType, cpuType);
+		if(_context->MayHaveMemoryCallback(relAddr, callbackType)) {
+			_context->CallMemoryCallback(relAddr, value, callbackType, cpuType);
+		}
 	}
 };

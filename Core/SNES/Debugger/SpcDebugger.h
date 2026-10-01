@@ -37,7 +37,9 @@ class SpcDebugger final : public IDebugger
 	bool _debuggerEnabled = false;
 	bool _predictiveBreakpoints = false;
 	bool _ignoreDspReadWrites = false;
-	
+
+	__forceinline bool IsScriptOnly();
+
 public:
 	SpcDebugger(Debugger* debugger);
 

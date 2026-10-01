@@ -76,6 +76,7 @@ class SnesDebugger final : public IDebugger
 	bool IsRegister(uint32_t addr);
 	__forceinline void ProcessCallStackUpdates(AddressInfo& destAddr, uint32_t destPc, uint8_t cpuFlags, uint16_t sp);
 	__forceinline AddressInfo GetAbsoluteAddress(uint32_t addr);
+	__forceinline bool IsScriptOnly();
 
 public:
 	SnesDebugger(Debugger* debugger, CpuType cpuType);

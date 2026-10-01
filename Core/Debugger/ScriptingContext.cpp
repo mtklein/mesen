@@ -225,10 +225,27 @@ void ScriptingContext::RegisterMemoryCallback(CallbackType type, int startAddr, 
 	if(DebugUtilities::IsPpuMemory(memType)) {
 		_debugger->GetScriptManager()->EnablePpuMemoryCallbacks();
 	} else {
-		_debugger->GetScriptManager()->EnableCpuMemoryCallbacks();
+		_debugger->GetScriptManager()->EnableCpuMemoryCallbacks(cpuType);
 	}
 
 	_callbacks[(int)type].push_back(callback);
+	RefreshPageFilter(type);
+}
+
+void ScriptingContext::RefreshPageFilter(CallbackType type)
+{
+	uint8_t* filter = _pageFilter[(int)type];
+	memset(filter, 0, sizeof(_pageFilter[0]));
+	_matchAnyPage[(int)type] = false;
+	for(MemoryCallback& callback : _callbacks[(int)type]) {
+		if(!DebugUtilities::IsRelativeMemory(callback.MemType) || callback.EndAddress > 0xFFFFFF) {
+			_matchAnyPage[(int)type] = true;
+			continue;
+		}
+		for(uint32_t page = callback.StartAddress >> 8; page <= callback.EndAddress >> 8; page++) {
+			filter[page >> 3] |= 1 << (page & 7);
+		}
+	}
 }
 
 void ScriptingContext::RefreshMemoryCallbackFlags()
@@ -238,7 +255,7 @@ void ScriptingContext::RefreshMemoryCallbackFlags()
 			if(DebugUtilities::IsPpuMemory(_callbacks[i][j].MemType)) {
 				_debugger->GetScriptManager()->EnablePpuMemoryCallbacks();
 			} else {
-				_debugger->GetScriptManager()->EnableCpuMemoryCallbacks();
+				_debugger->GetScriptManager()->EnableCpuMemoryCallbacks(_callbacks[i][j].Cpu);
 			}
 		}
 	}
@@ -262,6 +279,7 @@ void ScriptingContext::UnregisterMemoryCallback(CallbackType type, int startAddr
 
 		if(isMatch) {
 			_callbacks[(int)type].erase(_callbacks[(int)type].begin() + i);
+			RefreshPageFilter(type);
 			break;
 		}
 	}
