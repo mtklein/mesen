@@ -15,7 +15,7 @@ private:
 	bool _hasScript = false;
 	SimpleLock _scriptLock;
 	int _nextScriptId = 0;
-	bool _isCpuMemoryCallbackEnabled = false;
+	uint32_t _cpuMemoryCallbackMask = 0; //one bit per CpuType that has a CPU memory callback
 	bool _isPpuMemoryCallbackEnabled = false;
 	vector<unique_ptr<ScriptHost>> _scripts;
 
@@ -31,8 +31,8 @@ public:
 	string GetScriptLog(int32_t scriptId);
 	void ProcessEvent(EventType type, CpuType cpuType);
 
-	void EnableCpuMemoryCallbacks() { _isCpuMemoryCallbackEnabled = true; }
-	bool HasCpuMemoryCallbacks() { return _scripts.size() && _isCpuMemoryCallbackEnabled; }
+	void EnableCpuMemoryCallbacks(CpuType cpuType) { _cpuMemoryCallbackMask |= 1u << (int)cpuType; }
+	bool HasCpuMemoryCallbacks(CpuType cpuType) { return _scripts.size() && (_cpuMemoryCallbackMask & (1u << (int)cpuType)); }
 
 	void EnablePpuMemoryCallbacks() { _isPpuMemoryCallbackEnabled = true; }
 	bool HasPpuMemoryCallbacks() { return _scripts.size() && _isPpuMemoryCallbackEnabled; }

@@ -49,6 +49,8 @@ struct CpuInfo
 {
 	unique_ptr<IDebugger> Debugger;
 	unique_ptr<ExpressionEvaluator> Evaluator;
+	BreakpointManager* Breakpoints = nullptr; //cached for the script-only check
+	ITraceLogger* TraceLogger = nullptr;
 };
 
 class Debugger
@@ -86,6 +88,14 @@ private:
 	DebugControllerState _inputOverrides[8] = {};
 
 	bool _waitForBreakResume = false;
+
+	//Script-only mode (OT6 mesen-lean patch): set by MESEN_SCRIPT_ONLY=1 while no
+	//debugger window is open. The SNES/SPC debuggers then skip their per-access
+	//bookkeeping (access counters, CDL, call stack, event log, disassembly cache)
+	//and keep only what Lua callbacks and break requests need.
+	bool _scriptOnly = false;
+	void UpdateScriptOnly();
+	template<CpuType type> __forceinline bool CanSkipCpuDebugger();
 
 	void Reset();
 
@@ -127,6 +137,9 @@ public:
 	void ProcessEvent(EventType type, std::optional<CpuType> cpuType);
 
 	void ProcessConfigChange();
+
+	__forceinline bool IsScriptOnly() { return _scriptOnly; }
+	__forceinline bool HasPendingBreak() { return _breakRequestCount || _waitForBreakResume; }
 
 	void GetTokenList(CpuType cpuType, char* tokenList);
 	int64_t EvaluateExpression(string expression, CpuType cpuType, EvalResultType& resultType, bool useCache);

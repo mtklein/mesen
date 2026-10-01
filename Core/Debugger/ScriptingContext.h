@@ -62,6 +62,15 @@ protected:
 	vector<MemoryCallback> _callbacks[3];
 	vector<int> _eventCallbacks[(int)EventType::LastValue + 1];
 
+	//Per callback type, one bit per 256-byte page of a 24-bit relative address: set when some
+	//callback's range touches the page. Lets the vast majority of accesses skip the callback
+	//loop (and its address translation) without changing which callbacks run.
+	//_matchAnyPage is set when a callback can't be filtered by relative address (absolute
+	//memory type, or a range above 24 bits).
+	uint8_t _pageFilter[3][0x10000 / 8] = {};
+	bool _matchAnyPage[3] = {};
+	void RefreshPageFilter(CallbackType type);
+
 	template<typename T> void InternalCallMemoryCallback(AddressInfo relAddr, T& value, CallbackType type, CpuType cpuType);
 
 	bool IsAddressMatch(MemoryCallback& callback, AddressInfo addr);
@@ -81,6 +90,11 @@ public:
 	ScriptDrawSurface GetDrawSurface() { return _drawSurface; }
 
 	template<typename T> void CallMemoryCallback(AddressInfo relAddr, T& value, CallbackType type, CpuType cpuType);
+	__forceinline bool MayHaveMemoryCallback(AddressInfo relAddr, CallbackType type)
+	{
+		uint32_t page = (uint32_t)relAddr.Address >> 8;
+		return _matchAnyPage[(int)type] || (page < 0x10000 && (_pageFilter[(int)type][page >> 3] & (1 << (page & 7))));
+	}
 	int CallEventCallback(EventType type, CpuType cpuType);
 	bool CheckInitDone();
 	bool IsSaveStateAllowed();

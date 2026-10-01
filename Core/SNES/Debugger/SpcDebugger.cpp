@@ -50,15 +50,31 @@ void SpcDebugger::ProcessConfigChange()
 	_ignoreDspReadWrites = _settings->GetDebugConfig().SnesIgnoreDspReadWrites;
 }
 
+bool SpcDebugger::IsScriptOnly()
+{
+	//No step, break, breakpoint or trace pending: nothing below but the Lua callbacks needs this access
+	//(a break request only ever stops the main CPU, so the SPC never needs to check for one)
+	return _debugger->IsScriptOnly() && !_step->HasRequest && _step->BreakNeeded == BreakType::None &&
+		!_breakpointManager->HasBreakpoints() && !_traceLogger->IsEnabled();
+}
+
 void SpcDebugger::ProcessInstruction()
 {
 	SpcState& state = _spc->GetState();
 	uint16_t addr = state.PC;
 	uint8_t value = _spc->DebugRead(addr);
-	AddressInfo addressInfo = _spc->GetAbsoluteAddress(addr);
 	MemoryOperationInfo operation(addr, value, MemoryOperationType::ExecOpCode, MemoryType::SpcMemory);
 	InstructionProgress.LastMemOperation = operation;
 	InstructionProgress.StartCycle = state.Cycle;
+
+	if(IsScriptOnly()) {
+		_prevOpCode = value;
+		_prevProgramCounter = addr;
+		_prevStackPointer = state.SP;
+		return;
+	}
+
+	AddressInfo addressInfo = _spc->GetAbsoluteAddress(addr);
 
 	_disassembler->BuildCache(addressInfo, 0, CpuType::Spc);
 

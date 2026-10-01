@@ -141,15 +141,35 @@ void SnesDebugger::ResetPrevOpCode()
 	_prevOpCode = 0xFF;
 }
 
+bool SnesDebugger::IsScriptOnly()
+{
+	//No step, break, breakpoint or trace pending: nothing below but the Lua callbacks needs this access
+	return _debugger->IsScriptOnly() && !_step->HasRequest && _step->BreakNeeded == BreakType::None &&
+		!_breakpointManager->HasBreakpoints() && !_traceLogger->IsEnabled();
+}
+
 void SnesDebugger::ProcessInstruction()
 {
 	SnesCpuState& state = GetCpuState();
 	uint32_t pc = (state.K << 16) | state.PC;
-	AddressInfo addressInfo = GetAbsoluteAddress(pc);
 	uint8_t opCode = _memoryMappings->Peek(pc);
 	MemoryOperationInfo operation(pc, opCode, MemoryOperationType::ExecOpCode, _cpuMemType);
 	InstructionProgress.LastMemOperation = operation;
 	InstructionProgress.StartCycle = state.CycleCount;
+
+	if(IsScriptOnly()) {
+		_prevOpCode = opCode;
+		_prevProgramCounter = pc;
+		_prevStackPointer = state.SP;
+		if(_debugger->HasPendingBreak()) {
+			//A break request (savestate, memory access from another thread): stop between instructions
+			AddressInfo addressInfo = GetAbsoluteAddress(pc);
+			_debugger->ProcessBreakConditions(_cpuType, *_step.get(), _breakpointManager.get(), operation, addressInfo);
+		}
+		return;
+	}
+
+	AddressInfo addressInfo = GetAbsoluteAddress(pc);
 
 	if(addressInfo.Address >= 0) {
 		uint8_t cpuFlags = state.PS & (ProcFlags::IndexMode8 | ProcFlags::MemoryMode8);
@@ -389,6 +409,12 @@ void SnesDebugger::ProcessCallStackUpdates(AddressInfo& destAddr, uint32_t destP
 
 void SnesDebugger::ProcessInterrupt(uint32_t originalPc, uint32_t currentPc, bool forNmi)
 {
+	if(IsScriptOnly()) {
+		//Only the call stack, CDL and event log use this; the Lua nmi/irq events are raised by Debugger
+		ResetPrevOpCode();
+		return;
+	}
+
 	AddressInfo ret = _memoryMappings->GetAbsoluteAddress(originalPc);
 	AddressInfo dest = _memoryMappings->GetAbsoluteAddress(currentPc);
 
