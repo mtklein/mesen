@@ -36,6 +36,7 @@ public:
 	virtual ~IDebugger() = default;
 
 	StepRequest* GetStepRequest() { return _step.get(); }
+	unique_ptr<StepRequest>* GetStepRequestHolder() { return &_step; } //stable while the debugger lives (Step() replaces what it holds)
 	bool CheckStepBack() { return _stepBackManager->CheckStepBack(); }
 	bool IsStepBack() { return _stepBackManager->IsRewinding(); }
 	void ResetStepBackCache() { return _stepBackManager->ResetCache(); }

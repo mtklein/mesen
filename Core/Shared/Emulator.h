@@ -110,6 +110,12 @@ private:
 	atomic<bool> _isRunAheadFrame;
 	bool _frameRunning = false;
 
+	//Render on demand (a script's emu.setRenderOnDemand): the PPU draws only the frames a
+	//script asked for with emu.requestRender(); emulation is the same either way
+	atomic<bool> _renderOnDemand{false};
+	atomic<bool> _renderRequested{false};
+	atomic<bool> _lastFrameRendered{true};
+
 	RomInfo _rom;
 	ConsoleType _consoleType = {};
 
@@ -249,6 +255,13 @@ public:
 	bool IsRunning() { return _console != nullptr; }
 	bool IsRunAheadFrame() { return _isRunAheadFrame; }
 
+	void SetRenderOnDemand(bool enabled) { _renderOnDemand = enabled; _renderRequested = false; }
+	bool IsRenderOnDemand() { return _renderOnDemand; }
+	void RequestRender() { _renderRequested = true; }
+	bool ConsumeRenderRequest() { return _renderRequested.exchange(false); }
+	void SetLastFrameRendered(bool rendered) { _lastFrameRendered = rendered; }
+	bool IsLastFrameRendered() { return _lastFrameRendered; }
+
 	TimingInfo GetTimingInfo(CpuType cpuType);
 	uint32_t GetFrameCount();
 
@@ -269,17 +282,25 @@ public:
 		}
 	}
 
+	//The same, from a CPU that passes the address of the instruction about to run (lets the debugger skip the call)
+	template<CpuType type> __forceinline void ProcessInstruction(uint32_t pc)
+	{
+		if(_internalDebugger) {
+			_internalDebugger->ProcessInstructionInline<type>(pc);
+		}
+	}
+
 	template<CpuType type, uint8_t accessWidth = 1, MemoryAccessFlags flags = MemoryAccessFlags::None, typename T> __forceinline void ProcessMemoryRead(uint32_t addr, T& value, MemoryOperationType opType)
 	{
 		if(_internalDebugger) {
-			_internalDebugger->ProcessMemoryRead<type, accessWidth, flags>(addr, value, opType);
+			_internalDebugger->ProcessMemoryReadInline<type, accessWidth, flags>(addr, value, opType);
 		}
 	}
 
 	template<CpuType type, uint8_t accessWidth = 1, MemoryAccessFlags flags = MemoryAccessFlags::None, typename T> __forceinline bool ProcessMemoryWrite(uint32_t addr, T& value, MemoryOperationType opType)
 	{
 		if(_internalDebugger) {
-			return _internalDebugger->ProcessMemoryWrite<type, accessWidth, flags>(addr, value, opType);
+			return _internalDebugger->ProcessMemoryWriteInline<type, accessWidth, flags>(addr, value, opType);
 		}
 		return true;
 	}
@@ -294,7 +315,7 @@ public:
 	template<CpuType type> __forceinline void ProcessIdleCycle()
 	{
 		if(_internalDebugger) {
-			_internalDebugger->ProcessIdleCycle<type>();
+			_internalDebugger->ProcessIdleCycleInline<type>();
 		}
 	}
 
@@ -321,7 +342,7 @@ public:
 
 	template<CpuType type> __forceinline void ProcessPpuCycle()
 	{
-		if(_internalDebugger) {
+		if(_internalDebugger && !_internalDebugger->SkipsPpuCycle<type>()) {
 			_internalDebugger->ProcessPpuCycle<type>();
 		}
 	}

@@ -5,6 +5,10 @@
 #include "Debugger/DebugTypes.h"
 #include "Debugger/DebuggerFeatures.h"
 #include "Shared/SettingTypes.h"
+#include "Shared/MemoryOperationType.h"
+#include "Debugger/IDebugger.h"
+#include "Debugger/BreakpointManager.h"
+#include "Debugger/ITraceLogger.h"
 
 class IConsole;
 class Emulator;
@@ -51,6 +55,7 @@ struct CpuInfo
 	unique_ptr<ExpressionEvaluator> Evaluator;
 	BreakpointManager* Breakpoints = nullptr; //cached for the script-only check
 	ITraceLogger* TraceLogger = nullptr;
+	unique_ptr<StepRequest>* Step = nullptr; //cached for the inline per-PPU-cycle check
 };
 
 class Debugger
@@ -94,6 +99,9 @@ private:
 	//bookkeeping (access counters, CDL, call stack, event log, disassembly cache)
 	//and keep only what Lua callbacks and break requests need.
 	bool _scriptOnly = false;
+	uint32_t _scriptCallbackMask[3] = {}; //ScriptManager's per-CallbackType masks (read, write, exec; one bit per CpuType), mirrored for the inline checks
+	uint8_t _scriptPages[3][0x10000 / 8] = {}; //per CallbackType, the union of every script's 256-byte page filter (ScriptingContext)
+	bool _scriptAnyPage[3] = {};
 	void UpdateScriptOnly();
 	template<CpuType type> __forceinline bool CanSkipCpuDebugger();
 
@@ -139,6 +147,99 @@ public:
 	void ProcessConfigChange();
 
 	__forceinline bool IsScriptOnly() { return _scriptOnly; }
+
+	void SetScriptCallbackMask(int callbackType, uint32_t mask) { _scriptCallbackMask[callbackType] = mask; }
+	void SetScriptPages(int callbackType, const uint8_t* pages, bool anyPage)
+	{
+		memcpy(_scriptPages[callbackType], pages, sizeof(_scriptPages[0]));
+		_scriptAnyPage[callbackType] = anyPage;
+	}
+
+	//Whether a script may have a callback of this type (0 read, 1 write, 2 exec) at this relative address on this CPU
+	template<CpuType type> __forceinline bool HasScriptCallbackAt(int callbackType, uint32_t addr)
+	{
+		if(!(_scriptCallbackMask[callbackType] & (1u << (int)type))) {
+			return false;
+		}
+		uint32_t page = addr >> 8;
+		return _scriptAnyPage[callbackType] || (page < 0x10000 && (_scriptPages[callbackType][page >> 3] & (1 << (page & 7))));
+	}
+
+	//Script-only, nothing pending on this CPU (no step, break, breakpoint, trace log or step back): the
+	//same test the out-of-line ProcessMemoryRead/Write make before skipping the per-CPU debugger
+	template<CpuType type> __forceinline bool IsQuietCpu()
+	{
+		if constexpr(type == CpuType::Snes || type == CpuType::Sa1 || type == CpuType::Spc) {
+			CpuInfo& cpu = _debuggers[(int)type];
+			StepRequest* step = cpu.Step->get();
+			return _scriptOnly && !step->HasRequest && step->BreakNeeded == BreakType::None &&
+				!cpu.Breakpoints->HasBreakpoints() && !cpu.TraceLogger->IsEnabled() && !cpu.Debugger->IsStepBack();
+		} else {
+			return false;
+		}
+	}
+
+	//Whether a script has a callback this access would run (what ProcessScripts with processExec = false can call)
+	template<CpuType type> __forceinline bool HasScriptCallbackFor(uint32_t addr, MemoryOperationType opType)
+	{
+		switch(opType) {
+			case MemoryOperationType::Read:
+			case MemoryOperationType::DmaRead:
+			case MemoryOperationType::PpuRenderingRead:
+			case MemoryOperationType::DummyRead:
+				return HasScriptCallbackAt<type>(0, addr);
+			case MemoryOperationType::Write:
+			case MemoryOperationType::DummyWrite:
+			case MemoryOperationType::DmaWrite:
+				return HasScriptCallbackAt<type>(1, addr);
+			default:
+				return false;
+		}
+	}
+
+	//The memory hooks' fast path: a quiet CPU with no script callback for this access has nothing to do
+	template<CpuType type, uint8_t accessWidth = 1, MemoryAccessFlags flags = MemoryAccessFlags::None, typename T>
+	__forceinline void ProcessMemoryReadInline(uint32_t addr, T& value, MemoryOperationType opType)
+	{
+		if(IsQuietCpu<type>() && !HasScriptCallbackFor<type>(addr, opType)) {
+			return;
+		}
+		ProcessMemoryRead<type, accessWidth, flags>(addr, value, opType);
+	}
+
+	template<CpuType type, uint8_t accessWidth = 1, MemoryAccessFlags flags = MemoryAccessFlags::None, typename T>
+	__forceinline bool ProcessMemoryWriteInline(uint32_t addr, T& value, MemoryOperationType opType)
+	{
+		if(IsQuietCpu<type>() && !HasScriptCallbackFor<type>(addr, opType)) {
+			return !_debuggers[(int)type].Debugger->GetFrozenAddressManager().IsFrozenAddress(addr);
+		}
+		return ProcessMemoryWrite<type, accessWidth, flags>(addr, value, opType);
+	}
+
+	//Per instruction, with the instruction's address: a quiet CPU with no break to service and no exec
+	//callback on this page has nothing to do (the test ProcessInstruction makes, without the call)
+	template<CpuType type> __forceinline void ProcessInstructionInline(uint32_t pc)
+	{
+		if(IsQuietCpu<type>() && !HasPendingBreak() && !HasScriptCallbackAt<type>(2, pc)) {
+			return;
+		}
+		ProcessInstruction<type>();
+	}
+
+	template<CpuType type> __forceinline void ProcessIdleCycleInline()
+	{
+		if(IsQuietCpu<type>()) {
+			_debuggers[(int)type].Debugger->InstructionProgress.LastMemOperation.Type = MemoryOperationType::Idle;
+			return;
+		}
+		ProcessIdleCycle<type>();
+	}
+
+	//Script-only, no PPU step pending: ProcessPpuCycle has nothing to do (checked inline, every PPU cycle)
+	template<CpuType type> __forceinline bool SkipsPpuCycle()
+	{
+		return _scriptOnly && !(*_debuggers[(int)type].Step)->HasRequest;
+	}
 	__forceinline bool HasPendingBreak() { return _breakRequestCount || _waitForBreakResume; }
 
 	void GetTokenList(CpuType cpuType, char* tokenList);

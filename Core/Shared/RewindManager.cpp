@@ -440,10 +440,6 @@ void RewindManager::StopRewinding(bool forDebugger, bool deleteFutureData)
 	}
 }
 
-bool RewindManager::IsRewinding()
-{
-	return _rewindState != RewindState::Stopped;
-}
 
 bool RewindManager::IsStepBack()
 {

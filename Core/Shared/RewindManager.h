@@ -87,7 +87,7 @@ public:
 
 	void StartRewinding(bool forDebugger = false);
 	void StopRewinding(bool forDebugger = false, bool deleteFutureData = false);
-	bool IsRewinding();
+	bool IsRewinding() { return _rewindState != RewindState::Stopped; }
 	bool IsStepBack();
 	void RewindSeconds(uint32_t seconds);
 

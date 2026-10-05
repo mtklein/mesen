@@ -285,7 +285,7 @@ void ScriptingContext::RegisterMemoryCallback(CallbackType type, int startAddr, 
 	if(DebugUtilities::IsPpuMemory(memType)) {
 		_debugger->GetScriptManager()->EnablePpuMemoryCallbacks();
 	} else {
-		_debugger->GetScriptManager()->EnableCpuMemoryCallbacks(cpuType);
+		_debugger->GetScriptManager()->EnableCpuMemoryCallbacks(cpuType, type);
 	}
 
 	_callbacks[(int)type].push_back(callback);
@@ -306,6 +306,8 @@ void ScriptingContext::RefreshPageFilter(CallbackType type)
 			filter[page >> 3] |= 1 << (page & 7);
 		}
 	}
+	//The union over every script, which the debugger's inline checks read
+	_debugger->GetScriptManager()->RefreshScriptPages();
 }
 
 void ScriptingContext::RefreshMemoryCallbackFlags()
@@ -315,7 +317,7 @@ void ScriptingContext::RefreshMemoryCallbackFlags()
 			if(DebugUtilities::IsPpuMemory(_callbacks[i][j].MemType)) {
 				_debugger->GetScriptManager()->EnablePpuMemoryCallbacks();
 			} else {
-				_debugger->GetScriptManager()->EnableCpuMemoryCallbacks(_callbacks[i][j].Cpu);
+				_debugger->GetScriptManager()->EnableCpuMemoryCallbacks(_callbacks[i][j].Cpu, (CallbackType)i);
 			}
 		}
 	}
@@ -339,6 +341,8 @@ void ScriptingContext::UnregisterMemoryCallback(CallbackType type, int startAddr
 		if(isMatch) {
 			_callbacks[(int)type].erase(_callbacks[(int)type].begin() + i);
 			RefreshPageFilter(type);
+			//Recount which CPUs still have callbacks of each type, so accesses stop paying for removed ones
+			_debugger->GetScriptManager()->RefreshMemoryCallbackFlags();
 			break;
 		}
 	}

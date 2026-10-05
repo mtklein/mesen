@@ -26,7 +26,7 @@ void Spc::ProcessCycle()
 {
 	if(_opStep == SpcOpStep::ReadOpCode) {
 #ifndef DUMMYSPC
-		_emu->ProcessInstruction<CpuType::Spc>();
+		_emu->ProcessInstruction<CpuType::Spc>(_state.PC);
 #endif
 		_opCode = GetOpCode();
 		_opStep = SpcOpStep::Addressing;

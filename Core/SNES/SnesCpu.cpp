@@ -33,7 +33,7 @@ void SnesCpu::Exec()
 
 	if(_state.StopState == SnesCpuStopState::Running) {
 #ifndef DUMMYCPU
-		_emu->ProcessInstruction<CpuType::Snes>();
+		_emu->ProcessInstruction<CpuType::Snes>(((uint32_t)_state.K << 16) | _state.PC);
 #endif
 
 		RunOp();

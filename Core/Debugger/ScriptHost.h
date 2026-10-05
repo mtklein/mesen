@@ -22,6 +22,7 @@ public:
 
 	bool LoadScript(string scriptName, string path, string scriptContent, Debugger* debugger);
 	void RefreshMemoryCallbackFlags() { _context->RefreshMemoryCallbackFlags(); }
+	ScriptingContext* GetContext() { return _context.get(); }
 
 	void ProcessEvent(EventType eventType, CpuType cpuType);
 

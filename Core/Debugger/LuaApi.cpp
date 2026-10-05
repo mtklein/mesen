@@ -136,6 +136,9 @@ int LuaApi::GetLibrary(lua_State* lua)
 		{ "rewind", LuaApi::Rewind },
 
 		{ "takeScreenshot", LuaApi::TakeScreenshot },
+		{ "setRenderOnDemand", LuaApi::SetRenderOnDemand },
+		{ "requestRender", LuaApi::RequestRender },
+		{ "isFrameRendered", LuaApi::IsFrameRendered },
 
 		{ "isKeyPressed", LuaApi::IsKeyPressed },
 		{ "getInput", LuaApi::GetInput },
@@ -819,6 +822,31 @@ int LuaApi::TakeScreenshot(lua_State* lua)
 	stringstream ss;
 	_emu->GetVideoDecoder()->TakeScreenshot(ss);
 	l.Return(ss.str());
+	return l.ReturnCount();
+}
+
+int LuaApi::SetRenderOnDemand(lua_State* lua)
+{
+	LuaCallHelper l(lua);
+	bool enabled = l.ReadBool();
+	checkparams();
+	_emu->SetRenderOnDemand(enabled);
+	return l.ReturnCount();
+}
+
+int LuaApi::RequestRender(lua_State* lua)
+{
+	LuaCallHelper l(lua);
+	checkparams();
+	_emu->RequestRender();
+	return l.ReturnCount();
+}
+
+int LuaApi::IsFrameRendered(lua_State* lua)
+{
+	LuaCallHelper l(lua);
+	checkparams();
+	l.Return(_emu->IsLastFrameRendered());
 	return l.ReturnCount();
 }
 

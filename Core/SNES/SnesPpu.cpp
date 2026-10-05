@@ -513,6 +513,13 @@ bool SnesPpu::ProcessEndOfScanline(uint16_t& hClock)
 				(_settings->GetEmulationSpeed() == 0 || _settings->GetEmulationSpeed() > 150) &&
 				_frameSkipTimer.GetElapsedMS() < 10;
 
+			if(_emu->IsRenderOnDemand()) {
+				//Render on demand: draw this frame only if a script asked for it (the request
+				//is read after the StartFrame event, so a startFrame callback can ask for the
+				//frame that is starting)
+				_skipRender = !_emu->ConsumeRenderRequest();
+			}
+
 			if(_emu->IsRunAheadFrame()) {
 				_skipRender = true;
 			}
@@ -1512,6 +1519,13 @@ void SnesPpu::ProcessWindowMaskSettings(uint8_t value, uint8_t offset)
 
 void SnesPpu::SendFrame()
 {
+	_emu->SetLastFrameRendered(!_skipRender);
+	if(_skipRender && _emu->IsRenderOnDemand()) {
+		//Nothing was drawn: the decoder keeps the last frame that was (no stale frame to convert)
+		_emu->GetNotificationManager()->SendNotification(ConsoleNotificationType::PpuFrameDone);
+		return;
+	}
+
 	uint16_t width = _useHighResOutput ? 512 : 256;
 	uint16_t height = _useHighResOutput ? 478 : 239;
 

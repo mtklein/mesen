@@ -15,13 +15,14 @@ private:
 	bool _hasScript = false;
 	SimpleLock _scriptLock;
 	int _nextScriptId = 0;
-	uint32_t _cpuMemoryCallbackMask = 0; //one bit per CpuType that has a CPU memory callback
+	uint32_t _cpuMemoryCallbackMask[3] = {}; //per CallbackType (read, write, exec): one bit per CpuType that has one
 	bool _isPpuMemoryCallbackEnabled = false;
 	vector<unique_ptr<ScriptHost>> _scripts;
 
-	void RefreshMemoryCallbackFlags();
-
 public:
+	void RefreshMemoryCallbackFlags();
+	void RefreshScriptPages();
+
 	ScriptManager(Debugger* debugger);
 	~ScriptManager();
 
@@ -31,8 +32,34 @@ public:
 	string GetScriptLog(int32_t scriptId);
 	void ProcessEvent(EventType type, CpuType cpuType);
 
-	void EnableCpuMemoryCallbacks(CpuType cpuType) { _cpuMemoryCallbackMask |= 1u << (int)cpuType; }
-	bool HasCpuMemoryCallbacks(CpuType cpuType) { return _scripts.size() && (_cpuMemoryCallbackMask & (1u << (int)cpuType)); }
+	void EnableCpuMemoryCallbacks(CpuType cpuType, CallbackType type);
+	bool HasCpuMemoryCallbacks(CpuType cpuType)
+	{
+		return _scripts.size() && ((_cpuMemoryCallbackMask[0] | _cpuMemoryCallbackMask[1] | _cpuMemoryCallbackMask[2]) & (1u << (int)cpuType));
+	}
+	__forceinline bool HasCpuMemoryCallbacks(CpuType cpuType, CallbackType type)
+	{
+		return _scripts.size() && (_cpuMemoryCallbackMask[(int)type] & (1u << (int)cpuType));
+	}
+	//Whether ProcessMemoryOperation(processExec = false) has any callback to run for this access
+	__forceinline bool HasCpuMemoryCallbacks(CpuType cpuType, MemoryOperationType opType)
+	{
+		switch(opType) {
+			case MemoryOperationType::Read:
+			case MemoryOperationType::DmaRead:
+			case MemoryOperationType::PpuRenderingRead:
+			case MemoryOperationType::DummyRead:
+				return HasCpuMemoryCallbacks(cpuType, CallbackType::Read);
+
+			case MemoryOperationType::Write:
+			case MemoryOperationType::DummyWrite:
+			case MemoryOperationType::DmaWrite:
+				return HasCpuMemoryCallbacks(cpuType, CallbackType::Write);
+
+			default:
+				return false;
+		}
+	}
 
 	void EnablePpuMemoryCallbacks() { _isPpuMemoryCallbackEnabled = true; }
 	bool HasPpuMemoryCallbacks() { return _scripts.size() && _isPpuMemoryCallbackEnabled; }

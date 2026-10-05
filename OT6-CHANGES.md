@@ -4,7 +4,7 @@ This branch (`ot6`) is a modified version of MesenCE 2.2.1
 (github.com/nesdev-org/MesenCE, tag `2.2.1`, commit `20ba206c`), itself
 a community fork of Mesen (github.com/SourMesen/Mesen2). It was modified by
 Mike Klein for the OT6 project (a Final Fantasy VI ROM hack, whose test
-harness drives Mesen through Lua) on 2026-10-01. Like Mesen, it is
+harness drives Mesen through Lua) from 2026-10-01. Like Mesen, it is
 licensed under the GNU General Public License v3 (LICENSE).
 
 The changes, one commit each:
@@ -19,11 +19,24 @@ The changes, one commit each:
 - **Screenshot sync** (Core/Shared/Video/VideoDecoder.cpp).
   `emu.takeScreenshot()` waits for the pending frame decode, so it returns
   the frame just finished instead of sometimes the one before.
+- **Render on demand, and a debugger that pays only for the script's
+  callbacks** (Core/SNES/SnesPpu.cpp, Core/Shared/Emulator.h,
+  Core/Debugger; 2026-10-05). Lua's `emu.setRenderOnDemand(true)` makes the
+  SNES PPU draw only the frames a script asks for with
+  `emu.requestRender()`, through Mesen's own frame-skip path, so emulation
+  is unchanged; `emu.isFrameRendered()` says whether the frame just
+  finished was drawn. Off by default, and unloading the script turns it
+  off. In script-only mode the debugger's hot paths (memory accesses,
+  instructions, idle and PPU cycles) test inline whether the CPU is quiet
+  and a script callback could run, counting callbacks per type and per
+  256-byte page, and call into the debugger only then; nothing that runs
+  changes.
 - **SDK roll-forward** (UI/global.json). The .NET SDK may roll forward to
   a newer major version, so the .NET 10 SDK can build it; the UI still
   targets .NET 8.
 
 Without `MESEN_SCRIPT_ONLY=1` the program behaves like MesenCE 2.2.1 apart
-from the cheaper callback dispatch and the screenshot sync. The commit
+from the cheaper callback dispatch, the screenshot sync and the new Lua
+calls (inert until a script calls them). The commit
 messages give the details. The same changes on Mesen 2.1.1 are tagged
 `ot6-2.1.1-1`.

@@ -95,6 +95,8 @@ public:
 		uint32_t page = (uint32_t)relAddr.Address >> 8;
 		return _matchAnyPage[(int)type] || (page < 0x10000 && (_pageFilter[(int)type][page >> 3] & (1 << (page & 7))));
 	}
+	const uint8_t* GetPageFilter(CallbackType type) { return _pageFilter[(int)type]; }
+	bool MatchesAnyPage(CallbackType type) { return _matchAnyPage[(int)type]; }
 	int CallEventCallback(EventType type, CpuType cpuType);
 	bool CheckInitDone();
 	bool IsSaveStateAllowed();
