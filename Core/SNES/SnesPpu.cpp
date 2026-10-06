@@ -2394,8 +2394,9 @@ void SnesPpu::Write(uint32_t addr, uint8_t value)
 void SnesPpu::Serialize(Serializer& s)
 {
 	if(!s.IsSaving()) {
-		//a loaded state's InternalCgramAddress is the machine's; what the frames before it did is not known,
-		//so the rest of this frame and the next are evaluated whole when not drawn
+		//a loaded state's InternalCgramAddress is the machine's, unless the state says it may not be a drawn
+		//frame's (its _icaStale, below); what the frames before it did is not known, so the rest of this frame
+		//and the next are evaluated whole when not drawn
 		_icaStale = false;
 		_fbLineThis = _fbLinePred = -1;
 		_evalFramesAfterLoad = 1;
@@ -2405,17 +2406,20 @@ void SnesPpu::Serialize(Serializer& s)
 		}
 	}
 	if(s.IsSaving() && s.GetFormat() == SerializeFormat::Binary &&
-		(_icaStale || (_skipRender && _emu->IsRenderOnDemand() && _scanline > 0 && _scanline < _vblankStartScanline))) {
-		//A savestate while InternalCgramAddress may not be a drawn frame's, or anywhere inside the visible lines
-		//of a frame not drawn, where the per-line rendering state it carries (draw and fetch positions, the
-		//fetched tile data) need not be a drawn frame's either. (Not a Lua getState, which serializes to a
-		//map: a report, not the machine.)
+		_skipRender && _emu->IsRenderOnDemand() && _scanline > 0 && _scanline < _vblankStartScanline) {
+		//A savestate anywhere inside the visible lines of a frame not drawn, where the per-line rendering state
+		//it carries (draw and fetch positions, the fetched tile data) need not be a drawn frame's. (Not a Lua
+		//getState, which serializes to a map: a report, not the machine.) A savestate while only
+		//InternalCgramAddress may not be a drawn frame's (a frame whose last lookups were not evaluated: forced
+		//blank turned on before a line's first pixel) is not counted: the state carries the flag (_icaStale),
+		//and the run that loads it counts the CGRAM access during rendering that would read it, as this one would
 		_emu->CountRenderOnDemandInexact();
 	}
 
 	SV(_state.ForcedBlank);
 	SV(_state.ScreenBrightness);
 	SV(_scanline);
+	SV(_icaStale);
 	SV(_frameCount);
 	SV(_state.BgMode);
 	SV(_state.Mode1Bg3Priority);
