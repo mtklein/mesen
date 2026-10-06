@@ -526,7 +526,10 @@ bool SnesPpu::ProcessEndOfScanline(uint16_t& hClock)
 				//is read after the StartFrame event, so a startFrame callback can ask for the
 				//frame that is starting)
 				_skipRender = !_emu->ConsumeRenderRequest();
-				_evalFrame = _skipRender && HdmaWritesInidisp();
+				_evalFrame = _skipRender && (HdmaWritesInidisp() || _evalFramesAfterLoad > 0);
+				if(_evalFramesAfterLoad > 0) {
+					_evalFramesAfterLoad--;
+				}
 				_fbLinePred = _fbLineThis;
 				_fbLineThis = -1;
 			}
@@ -2384,8 +2387,15 @@ void SnesPpu::Write(uint32_t addr, uint8_t value)
 void SnesPpu::Serialize(Serializer& s)
 {
 	if(!s.IsSaving()) {
-		//a loaded state's InternalCgramAddress is the machine's
+		//a loaded state's InternalCgramAddress is the machine's; what the frames before it did is not known,
+		//so the rest of this frame and the next are evaluated whole when not drawn
 		_icaStale = false;
+		_fbLineThis = _fbLinePred = -1;
+		_evalFramesAfterLoad = 1;
+		if(_skipRender && _emu->IsRenderOnDemand()) {
+			_evalFrame = true;
+			_evalLine = true;
+		}
 	}
 	if(s.IsSaving() && s.GetFormat() == SerializeFormat::Binary && _icaStale) {
 		//A savestate inside the visible lines of a frame not drawn: InternalCgramAddress may not be a drawn frame's

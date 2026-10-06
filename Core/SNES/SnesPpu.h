@@ -135,6 +135,9 @@ private:
 	//frame not drawn evaluates it from its start, so the forced-blank write needn't evaluate it after the fact
 	int16_t _fbLineThis = -1;
 	int16_t _fbLinePred = -1;
+	//After a savestate load nothing is known of the frame before: the rest of this frame and the next one
+	//are evaluated whole when not drawn
+	uint8_t _evalFramesAfterLoad = 0;
 	uint8_t _configVisibleLayers = 0xFF;
 
 	uint8_t _spritePriority[256] = {};
