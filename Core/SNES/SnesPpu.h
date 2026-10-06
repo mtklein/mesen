@@ -139,6 +139,8 @@ private:
 	//After a savestate load nothing is known of the frame before: the rest of this frame and the next one
 	//are evaluated whole when not drawn
 	uint8_t _evalFramesAfterLoad = 0;
+	//The brightness the last frame started at (15 in forced blank), for the fade test at a frame's start
+	uint8_t _fadeBrightness = 15;
 	uint8_t _configVisibleLayers = 0xFF;
 
 	uint8_t _spritePriority[256] = {};

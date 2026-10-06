@@ -526,7 +526,13 @@ bool SnesPpu::ProcessEndOfScanline(uint16_t& hClock)
 				//is read after the StartFrame event, so a startFrame callback can ask for the
 				//frame that is starting)
 				_skipRender = !_emu->ConsumeRenderRequest();
-				_evalFrame = _skipRender && (HdmaWritesInidisp() || _evalFramesAfterLoad > 0);
+				//...and a frame of a fade to black (brightness below the last frame's start, or at 0): its last
+				//lookups are the ones forced blank turning on keeps, and a fade's forced blank can turn on before a
+				//line's first pixel (FF6's battle exit), where the line before it would otherwise not have been seen
+				bool fading = !_state.ForcedBlank && _state.ScreenBrightness < 15 &&
+					(_state.ScreenBrightness < _fadeBrightness || _state.ScreenBrightness == 0);
+				_fadeBrightness = _state.ForcedBlank ? 15 : _state.ScreenBrightness;
+				_evalFrame = _skipRender && (HdmaWritesInidisp() || _evalFramesAfterLoad > 0 || fading);
 				if(_evalFramesAfterLoad > 0) {
 					_evalFramesAfterLoad--;
 				}
@@ -2414,6 +2420,13 @@ void SnesPpu::Serialize(Serializer& s)
 		//blank turned on before a line's first pixel) is not counted: the state carries the flag (_icaStale),
 		//and the run that loads it counts the CGRAM access during rendering that would read it, as this one would
 		_emu->CountRenderOnDemandInexact();
+	}
+	if(s.IsSaving() && s.GetFormat() == SerializeFormat::Binary && _emu->IsRenderOnDemand()) {
+		//said for every savestate under render on demand, so a run's log counts the ones that carry an unknown
+		//palette address (a frame whose last lookups were not evaluated) among all it saved
+		fprintf(stdout, "[render-on-demand] savestate at frame %u scanline %d: palette address %s\n",
+			_frameCount, _scanline, _icaStale ? "UNKNOWN (carried)" : "known");
+		fflush(stdout);
 	}
 
 	SV(_state.ForcedBlank);
