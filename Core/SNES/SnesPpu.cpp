@@ -989,9 +989,7 @@ bool SnesPpu::HdmaWritesInidisp()
 
 void SnesPpu::EvaluateChunk()
 {
-	if(!_state.ForcedBlank && _drawStartX <= _drawEndX) {
-		_icaStale = _lineInexact;
-	}
+	_icaWritten = false;
 	if(_state.ForcedBlank) {
 		//Forced blank, output black
 		memset(_mainScreenBuffer + _drawStartX, 0, (_drawEndX - _drawStartX + 1) * 2);
@@ -1009,6 +1007,11 @@ void SnesPpu::EvaluateChunk()
 		}
 		RenderBgColor();
 	}
+	if(_icaWritten) {
+		//this chunk set InternalCgramAddress (a mode 7 or sprite-covered chunk may not): it is exact unless
+		//the line was evaluated after a register write earlier on it
+		_icaStale = _lineInexact;
+	}
 }
 
 void SnesPpu::RenderBgColor()
@@ -1017,11 +1020,13 @@ void SnesPpu::RenderBgColor()
 	for(int x = _drawStartX; x <= _drawEndX; x++) {
 		if((_mainScreenFlags[x] & 0x0F) == 0) {
 			_state.InternalCgramAddress = 0;
+			_icaWritten = true;
 			_mainScreenBuffer[x] = _cgram[0];
 			_mainScreenFlags[x] = pixelFlags;
 		}
 		if(_subScreenPriority[x] == 0) {
 			_state.InternalCgramAddress = 0;
+			_icaWritten = true;
 			_subScreenBuffer[x] = _cgram[0];
 		}
 	}
@@ -1168,9 +1173,11 @@ uint16_t SnesPpu::GetRgbColor(uint8_t paletteIndex, uint8_t colorIndex)
 	} else if constexpr(bpp == 8) {
 		//Ignore palette bits for 256-color layers
 		_state.InternalCgramAddress = basePaletteOffset + colorIndex;
+		_icaWritten = true;
 		return _cgram[_state.InternalCgramAddress];
 	} else {
 		_state.InternalCgramAddress = basePaletteOffset + paletteIndex * (1 << bpp) + colorIndex;
+		_icaWritten = true;
 		return _cgram[_state.InternalCgramAddress];
 	}
 }
@@ -2397,9 +2404,12 @@ void SnesPpu::Serialize(Serializer& s)
 			_evalLine = true;
 		}
 	}
-	if(s.IsSaving() && s.GetFormat() == SerializeFormat::Binary && _icaStale) {
-		//A savestate inside the visible lines of a frame not drawn: InternalCgramAddress may not be a drawn frame's
-		//(not a Lua getState, which serializes to a map: a report, not the machine)
+	if(s.IsSaving() && s.GetFormat() == SerializeFormat::Binary &&
+		(_icaStale || (_skipRender && _emu->IsRenderOnDemand() && _scanline > 0 && _scanline < _vblankStartScanline))) {
+		//A savestate while InternalCgramAddress may not be a drawn frame's, or anywhere inside the visible lines
+		//of a frame not drawn, where the per-line rendering state it carries (draw and fetch positions, the
+		//fetched tile data) need not be a drawn frame's either. (Not a Lua getState, which serializes to a
+		//map: a report, not the machine.)
 		_emu->CountRenderOnDemandInexact();
 	}
 

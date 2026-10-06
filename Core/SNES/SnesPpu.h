@@ -130,6 +130,7 @@ private:
 	//earlier on its line; cleared by an exact evaluation. A CGRAM access during rendering or a savestate
 	//while it is set is counted (emu.getRenderOnDemandInexact)
 	bool _icaStale = false;
+	bool _icaWritten = false; //set by every palette lookup that writes InternalCgramAddress
 	bool _lineInexact = false;
 	//A line on which forced blank turned on in the frame before (FF6's battle screen does it every frame): a
 	//frame not drawn evaluates it from its start, so the forced-blank write needn't evaluate it after the fact
