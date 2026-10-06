@@ -139,6 +139,7 @@ int LuaApi::GetLibrary(lua_State* lua)
 		{ "setRenderOnDemand", LuaApi::SetRenderOnDemand },
 		{ "requestRender", LuaApi::RequestRender },
 		{ "isFrameRendered", LuaApi::IsFrameRendered },
+		{ "getRenderOnDemandInexact", LuaApi::GetRenderOnDemandInexact },
 
 		{ "isKeyPressed", LuaApi::IsKeyPressed },
 		{ "getInput", LuaApi::GetInput },
@@ -847,6 +848,14 @@ int LuaApi::IsFrameRendered(lua_State* lua)
 	LuaCallHelper l(lua);
 	checkparams();
 	l.Return(_emu->IsLastFrameRendered());
+	return l.ReturnCount();
+}
+
+int LuaApi::GetRenderOnDemandInexact(lua_State* lua)
+{
+	LuaCallHelper l(lua);
+	checkparams();
+	l.Return(_emu->GetRenderOnDemandInexact());
 	return l.ReturnCount();
 }
 

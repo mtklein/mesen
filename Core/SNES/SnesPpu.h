@@ -109,6 +109,32 @@ private:
 
 	Timer _frameSkipTimer;
 	bool _skipRender = false;
+	//Render on demand, on a frame not drawn: the last visible line is still evaluated (layers and backdrop,
+	//no output), so InternalCgramAddress -- which the palette lookups set, savestates carry and CGRAM
+	//accesses during rendering use -- ends the frame as a drawn frame leaves it
+	bool _evalLine = false;
+	//...and every visible line of a frame not drawn whose HDMA writes INIDISP ($2100): forced blank can then
+	//turn on in any line's H-blank, after other HDMA writes a drawn frame's catch-up would have preceded
+	bool _evalFrame = false;
+	bool HdmaWritesInidisp();
+	//...and a line where the screen is forced blank partway (the frame's last palette lookups then fall on
+	//that line): the catch-up points of the current line (where a drawn frame would have split it into
+	//chunks), and whether a register was written on it, which would make a later evaluation inexact
+	uint16_t _skipChunkEnd[8] = {};
+	uint8_t _skipChunkCount = 0;
+	bool _skipChunkOverflow = false;
+	bool _skipLineDirty = false;
+	void EvaluateChunk();
+	//Whether InternalCgramAddress may not be what drawing every frame would have left: set by a chunk a drawn
+	//frame would have rendered (not in forced blank) that was skipped, or evaluated after a register write
+	//earlier on its line; cleared by an exact evaluation. A CGRAM access during rendering or a savestate
+	//while it is set is counted (emu.getRenderOnDemandInexact)
+	bool _icaStale = false;
+	bool _lineInexact = false;
+	//A line on which forced blank turned on in the frame before (FF6's battle screen does it every frame): a
+	//frame not drawn evaluates it from its start, so the forced-blank write needn't evaluate it after the fact
+	int16_t _fbLineThis = -1;
+	int16_t _fbLinePred = -1;
 	uint8_t _configVisibleLayers = 0xFF;
 
 	uint8_t _spritePriority[256] = {};
@@ -204,6 +230,7 @@ private:
 	bool IsDoubleWidth();
 
 	bool CanAccessCgram();
+	uint16_t InternalCgramAddressSeen();
 	bool CanAccessVram();
 
 	void EvaluateNextLineSprites();

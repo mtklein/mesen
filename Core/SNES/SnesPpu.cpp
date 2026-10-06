@@ -444,6 +444,10 @@ bool SnesPpu::ProcessEndOfScanline(uint16_t& hClock)
 
 			_drawStartX = 0;
 			_drawEndX = 0;
+			_skipChunkCount = 0;
+			_skipChunkOverflow = false;
+			_skipLineDirty = false;
+			_lineInexact = false;
 			_fetchBgStart = 0;
 			_fetchBgEnd = 0;
 			_fetchSpriteStart = 0;
@@ -475,6 +479,10 @@ bool SnesPpu::ProcessEndOfScanline(uint16_t& hClock)
 
 		_scanline++;
 		hClock = 0;
+
+		//Render on demand: a frame not drawn still evaluates its last visible line (see _evalLine)
+		_evalLine = _skipRender && _emu->IsRenderOnDemand() &&
+			(_evalFrame || _scanline == _vblankStartScanline - 1 || _scanline == _fbLinePred);
 
 		_console->GetInternalRegisters()->ProcessAutoJoypad();
 
@@ -518,6 +526,9 @@ bool SnesPpu::ProcessEndOfScanline(uint16_t& hClock)
 				//is read after the StartFrame event, so a startFrame callback can ask for the
 				//frame that is starting)
 				_skipRender = !_emu->ConsumeRenderRequest();
+				_evalFrame = _skipRender && HdmaWritesInidisp();
+				_fbLinePred = _fbLineThis;
+				_fbLineThis = -1;
 			}
 
 			if(_emu->IsRunAheadFrame()) {
@@ -893,7 +904,8 @@ void SnesPpu::RenderScanline()
 		_spriteEvalStart = _spriteEvalEnd + 1;
 	}
 
-	if(!_skipRender && (hPos <= 263 || _fetchBgEnd < 263)) {
+	bool evaluate = !_skipRender || _evalLine;
+	if(evaluate && (hPos <= 263 || _fetchBgEnd < 263)) {
 		//Fetch tilemap and tile CHR data, as needed, between H=0 and H=263
 		_fetchBgEnd = std::min(hPos, 263);
 		if(_fetchBgStart <= _fetchBgEnd) {
@@ -903,32 +915,45 @@ void SnesPpu::RenderScanline()
 	}
 
 	//Render the scanline
-	if(!_skipRender && _drawStartX <= 255 && hPos > 22 && _scanline > 0) {
-		_drawEndX = std::min(hPos - 22, 255);
-
-		if(_state.ForcedBlank) {
-			//Forced blank, output black
-			memset(_mainScreenBuffer + _drawStartX, 0, (_drawEndX - _drawStartX + 1) * 2);
-			memset(_subScreenBuffer + _drawStartX, 0, (_drawEndX - _drawStartX + 1) * 2);
-		} else {
-			switch(_state.BgMode) {
-				case 0: RenderMode0(); break;
-				case 1: RenderMode1(); break;
-				case 2: RenderMode2(); break;
-				case 3: RenderMode3(); break;
-				case 4: RenderMode4(); break;
-				case 5: RenderMode5(); break;
-				case 6: RenderMode6(); break;
-				case 7: RenderMode7(); break;
+	if(evaluate && _drawStartX <= 255 && hPos > 22 && _scanline > 0) {
+		if(_skipRender && _skipChunkCount) {
+			//Render on demand, evaluating a line partway: first the chunks a drawn frame would already have
+			//rendered (split where it caught up), so the mosaic and backdrop state match
+			uint16_t end = (uint16_t)std::min(hPos - 22, 255);
+			for(uint8_t i = 0; i < _skipChunkCount; i++) {
+				if(_skipChunkEnd[i] >= _drawStartX && _skipChunkEnd[i] < end) {
+					_drawEndX = _skipChunkEnd[i];
+					EvaluateChunk();
+					_drawStartX = _drawEndX + 1;
+				}
 			}
-			RenderBgColor();
+			_skipChunkCount = 0;
 		}
 
-		ApplyColorMath();
-		ApplyBrightness<true>();
-		ApplyHiResMode();
+		_drawEndX = std::min(hPos - 22, 255);
+		EvaluateChunk();
+
+		if(!_skipRender) {
+			ApplyColorMath();
+			ApplyBrightness<true>();
+			ApplyHiResMode();
+		}
 
 		_drawStartX = _drawEndX + 1;
+	} else if(!evaluate && _drawStartX <= 255 && hPos > 22 && _scanline > 0 && _emu->IsRenderOnDemand()) {
+		//Render on demand, a line not evaluated: remember where a drawn frame would have split it
+		uint16_t end = (uint16_t)std::min(hPos - 22, 255);
+		if(_skipChunkCount == 0 || _skipChunkEnd[_skipChunkCount - 1] < end) {
+			if(!_state.ForcedBlank) {
+				//a drawn frame would have looked colors up here
+				_icaStale = true;
+			}
+			if(_skipChunkCount < 8) {
+				_skipChunkEnd[_skipChunkCount++] = end;
+			} else {
+				_skipChunkOverflow = true;
+			}
+		}
 	}
 
 	if(hPos >= 270 && !_spriteFetchingDone) {
@@ -939,6 +964,47 @@ void SnesPpu::RenderScanline()
 			FetchSpriteData();
 		}
 		_fetchSpriteStart = _fetchSpriteEnd + 1;
+	}
+}
+
+bool SnesPpu::HdmaWritesInidisp()
+{
+	//An enabled HDMA channel (A-bus to B-bus) whose register run, for its transfer mode, includes $2100
+	static constexpr uint8_t lastOffset[8] = { 0, 1, 0, 1, 3, 1, 0, 1 };
+	SnesDmaControllerState& dma = _console->GetDmaController()->GetState();
+	for(int i = 0; i < 8; i++) {
+		DmaChannelConfig& ch = dma.Channel[i];
+		if((dma.HdmaChannels & (1 << i)) && !ch.InvertDirection) {
+			uint8_t span = lastOffset[ch.TransferMode & 0x07];
+			if((uint8_t)(0x100 - ch.DestAddress) <= span || ch.DestAddress == 0) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+void SnesPpu::EvaluateChunk()
+{
+	if(!_state.ForcedBlank && _drawStartX <= _drawEndX) {
+		_icaStale = _lineInexact;
+	}
+	if(_state.ForcedBlank) {
+		//Forced blank, output black
+		memset(_mainScreenBuffer + _drawStartX, 0, (_drawEndX - _drawStartX + 1) * 2);
+		memset(_subScreenBuffer + _drawStartX, 0, (_drawEndX - _drawStartX + 1) * 2);
+	} else {
+		switch(_state.BgMode) {
+			case 0: RenderMode0(); break;
+			case 1: RenderMode1(); break;
+			case 2: RenderMode2(); break;
+			case 3: RenderMode3(); break;
+			case 4: RenderMode4(); break;
+			case 5: RenderMode5(); break;
+			case 6: RenderMode6(); break;
+			case 7: RenderMode7(); break;
+		}
+		RenderBgColor();
 	}
 }
 
@@ -1648,6 +1714,16 @@ bool SnesPpu::IsDoubleWidth()
 	return _state.HiResMode || _state.BgMode == 5 || _state.BgMode == 6;
 }
 
+uint16_t SnesPpu::InternalCgramAddressSeen()
+{
+	//Render on demand: inside the visible lines of a frame not drawn, before its evaluated last line, the
+	//palette-lookup address a drawn frame would have left here is unknown; count the access
+	if(_icaStale) {
+		_emu->CountRenderOnDemandInexact();
+	}
+	return _state.InternalCgramAddress;
+}
+
 bool SnesPpu::CanAccessCgram()
 {
 	bool allowAccess = _scanline >= _nmiScanline || _scanline == 0 || _state.ForcedBlank || _memoryManager->GetHClock() < 88 || _memoryManager->GetHClock() >= 1096;
@@ -1809,7 +1885,7 @@ uint8_t SnesPpu::Read(uint16_t addr)
 			uint8_t value;
 
 			//During rendering, reads to CGRAM end up returning the value a the address the PPU is currently reading
-			uint16_t cgAddr = CanAccessCgram() ? _state.CgramAddress : _state.InternalCgramAddress;
+			uint16_t cgAddr = CanAccessCgram() ? _state.CgramAddress : InternalCgramAddressSeen();
 
 			if(_state.CgramAddressLatch) {
 				value = ((_cgram[cgAddr] >> 8) & 0x7F) | (_state.Ppu2OpenBus & 0x80);
@@ -1907,8 +1983,24 @@ uint8_t SnesPpu::Read(uint16_t addr)
 
 void SnesPpu::Write(uint32_t addr, uint8_t value)
 {
+	//Render on demand, a visible line not evaluated: forced blank turning on here ends the frame's palette
+	//lookups on this line, so evaluate it up to now first (exact unless a register changed earlier on it)
+	bool skippedLine = _skipRender && !_evalLine && _emu->IsRenderOnDemand() && _scanline > 0 && _scanline < _vblankStartScanline;
+	if(addr == 0x2100 && (value & 0x80) && !_state.ForcedBlank && _fbLineThis < 0 &&
+		_scanline > 0 && _scanline < _vblankStartScanline) {
+		_fbLineThis = _scanline;
+	}
+	if(skippedLine && addr == 0x2100 && (value & 0x80) && !_state.ForcedBlank) {
+		_lineInexact = _skipLineDirty || _skipChunkOverflow;
+		_evalLine = true;
+	}
+
 	if(_scanline < _vblankStartScanline) {
 		RenderScanline();
+	}
+
+	if(skippedLine) {
+		_skipLineDirty = true;
 	}
 
 	switch(addr) {
@@ -2149,7 +2241,7 @@ void SnesPpu::Write(uint32_t addr, uint8_t value)
 				value &= 0x7F;
 
 				//During rendering, writes to CGRAM end up writing to the address the PPU is currently reading
-				uint16_t cgAddr = CanAccessCgram() ? _state.CgramAddress : _state.InternalCgramAddress;
+				uint16_t cgAddr = CanAccessCgram() ? _state.CgramAddress : InternalCgramAddressSeen();
 
 				_emu->ProcessPpuWrite<CpuType::Snes>(cgAddr << 1, _state.CgramWriteBuffer, MemoryType::SnesCgRam);
 				_emu->ProcessPpuWrite<CpuType::Snes>((cgAddr << 1) + 1, value, MemoryType::SnesCgRam);
@@ -2291,6 +2383,16 @@ void SnesPpu::Write(uint32_t addr, uint8_t value)
 
 void SnesPpu::Serialize(Serializer& s)
 {
+	if(!s.IsSaving()) {
+		//a loaded state's InternalCgramAddress is the machine's
+		_icaStale = false;
+	}
+	if(s.IsSaving() && s.GetFormat() == SerializeFormat::Binary && _icaStale) {
+		//A savestate inside the visible lines of a frame not drawn: InternalCgramAddress may not be a drawn frame's
+		//(not a Lua getState, which serializes to a map: a report, not the machine)
+		_emu->CountRenderOnDemandInexact();
+	}
+
 	SV(_state.ForcedBlank);
 	SV(_state.ScreenBrightness);
 	SV(_scanline);

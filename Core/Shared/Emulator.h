@@ -115,6 +115,7 @@ private:
 	atomic<bool> _renderOnDemand{false};
 	atomic<bool> _renderRequested{false};
 	atomic<bool> _lastFrameRendered{true};
+	atomic<uint32_t> _renderOnDemandInexact{0};
 
 	RomInfo _rom;
 	ConsoleType _consoleType = {};
@@ -261,6 +262,8 @@ public:
 	bool ConsumeRenderRequest() { return _renderRequested.exchange(false); }
 	void SetLastFrameRendered(bool rendered) { _lastFrameRendered = rendered; }
 	bool IsLastFrameRendered() { return _lastFrameRendered; }
+	void CountRenderOnDemandInexact() { _renderOnDemandInexact++; }
+	uint32_t GetRenderOnDemandInexact() { return _renderOnDemandInexact; }
 
 	TimingInfo GetTimingInfo(CpuType cpuType);
 	uint32_t GetFrameCount();

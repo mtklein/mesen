@@ -30,7 +30,13 @@ The changes, one commit each:
   instructions, idle and PPU cycles) test inline whether the CPU is quiet
   and a script callback could run, counting callbacks per type and per
   256-byte page, and call into the debugger only then; nothing that runs
-  changes.
+  changes. A frame not drawn still evaluates (layers and backdrop, no
+  output) its last visible line, every line of a frame whose HDMA writes
+  INIDISP, the line where forced blank turned on the frame before, and the
+  current line when forced blank turns on, so the palette-lookup address
+  (InternalCgramAddress) a drawn frame leaves is the same; a savestate or
+  a CGRAM access during rendering while it may not be is counted
+  (`emu.getRenderOnDemandInexact()`).
 - **SDK roll-forward** (UI/global.json). The .NET SDK may roll forward to
   a newer major version, so the .NET 10 SDK can build it; the UI still
   targets .NET 8.

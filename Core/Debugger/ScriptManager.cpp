@@ -31,8 +31,8 @@ int ScriptManager::LoadScript(string name, string path, string content, int32_t 
 		scriptId = script->GetScriptId();
 		_scripts.push_back(std::move(script));
 		_hasScript = true;
-		//The callbacks it registered as it loaded were counted before it was in _scripts
-		RefreshScriptPages();
+		//The callbacks it registered (or removed) as it loaded were counted before it was in _scripts
+		RefreshMemoryCallbackFlags();
 		return scriptId;
 	} else {
 		auto result = std::find_if(_scripts.begin(), _scripts.end(), [=](unique_ptr<ScriptHost>& script) {
